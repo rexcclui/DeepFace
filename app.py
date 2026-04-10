@@ -4,53 +4,61 @@ import numpy as np
 import os
 import gc
 
-# 1. Block heavy logs to save tiny bits of RAM
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-st.set_page_config(page_title="Lite Age AI", layout="centered")
-st.title("Age Detector AI 🎂")
+st.set_page_config(page_title="Group Age AI", layout="centered")
+st.title("Group Age Detector 📸")
 
-uploaded_file = st.file_uploader("Upload a photo", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Upload a group photo", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
-    # Open and immediately resize the image to be smaller
-    # Large photos from modern phones are often the cause of the crash
+    # 1. Resize for stability (Essential for free servers!)
     raw_img = Image.open(uploaded_file).convert('RGB')
-    raw_img.thumbnail((800, 800)) # Resize to max 800px to save RAM
+    raw_img.thumbnail((600, 600), Image.Resampling.LANCZOS)
     
-    st.image(raw_img, width='stretch') # Fixed the 2026 warning
+    st.image(raw_img, width='stretch', caption="Photo processed")
     
-    if st.button("Check Age! 🚀"):
-        with st.spinner('Analyzing... (this uses a lot of RAM)'):
+    if st.button("Analyze All Faces! 🚀"):
+        with st.spinner('Checking every face...'):
             try:
-                # 2. Lazy Import
                 from deepface import DeepFace
-                
                 img_array = np.array(raw_img)
                 
-                # 3. Use the absolute lightest settings
-                # 'opencv' is the only one that reliably fits on free servers
+                # 2. Run analysis
                 results = DeepFace.analyze(
                     img_path = img_array, 
                     actions = ['age'],
                     enforce_detection = False,
-                    detector_backend = 'opencv' 
+                    detector_backend = 'opencv'
                 )
+
+                # 3. LOOP THROUGH THE RESULTS
+                # DeepFace returns a list of dictionaries if multiple faces are found
+                st.write(f"### Found {len(results)} person(s):")
                 
-                age = results[0]['age']
+                for i, person in enumerate(results):
+                    age = person['age']
+                    
+                    # Create a nice box for each person
+                    with st.container(border=True):
+                        col1, col2 = st.columns([1, 3])
+                        
+                        with col1:
+                            # Show the small face crop
+                            r = person['region']
+                            face_crop = img_array[r['y']:r['y']+r['h'], r['x']:r['x']+r['w']]
+                            st.image(face_crop, width='stretch')
+                            
+                        with col2:
+                            st.write(f"**Person {i+1}**")
+                            st.metric(label="Age Guess", value=f"{age} yrs")
+
                 st.balloons()
-                st.metric("Estimated Age", f"{age} years old")
                 
-                # 4. Immediate Cleanup
+                # Cleanup
                 del img_array
                 gc.collect()
                 
             except Exception as e:
-                st.error("The server ran out of memory. Try a smaller or cropped photo!")
+                st.error("The AI got overwhelmed. Try a photo with fewer people or clearer faces.")
                 gc.collect()
-
-# Add a "Reset" button in the sidebar to clear stuck memory
-if st.sidebar.button("Clear App Cache"):
-    st.cache_data.clear()
-    gc.collect()
-    st.success("Memory cleared!")
