@@ -98,7 +98,12 @@ if source_img:
                     person = max(results, key=lambda x: x['region']['w'] * x['region']['h'])
                     age = person['age']
                     r = person['region']
-                    smile_score = int(round(person.get('emotion', {}).get('happy', 0)))
+                    # Look Score /10: face clarity (face_confidence) weighted 70%,
+                    # positive emotion (happy + surprise) weighted 30%
+                    face_conf = person.get('face_confidence', 0.5)
+                    emotions = person.get('emotion', {})
+                    positive = (emotions.get('happy', 0) + emotions.get('surprise', 0)) / 100
+                    look_score = round(min(10.0, face_conf * 7 + positive * 3), 1)
 
                     # Create a card for the detected person
                     with st.container(border=True):
@@ -117,7 +122,7 @@ if source_img:
 
                         with col2:
                             st.metric("Age Guess", f"{age} yrs")
-                            st.metric("Smile Score", f"{smile_score} / 100")
+                            st.metric("Look Score", f"{look_score} / 10")
 
                     st.balloons()
 
