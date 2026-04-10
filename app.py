@@ -4,42 +4,34 @@ from PIL import Image
 import numpy as np
 import os
 
-# Server memory optimization
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-st.set_page_config(page_title="Age AI", layout="centered")
-st.title("Age Detector AI 🎂")
+st.set_page_config(page_title="Multi-Face AI", layout="centered")
+st.title("Face Finder AI 🎂📸")
 
-# --- INPUT SECTION ---
-st.write("### Choose your method:")
+st.write("### Choose a photo or take a group selfie")
 tab1, tab2 = st.tabs(["📸 Take Selfie", "📁 Upload Photo"])
 
 source_img = None
-
 with tab1:
-    cam_file = st.camera_input("Smile for the AI!")
-    if cam_file:
-        source_img = cam_file
+    cam_file = st.camera_input("Gather everyone!")
+    if cam_file: source_img = cam_file
 
 with tab2:
-    uploaded_file = st.file_uploader("Select a photo from your gallery", type=["jpg", "jpeg", "png"])
-    if uploaded_file:
-        source_img = uploaded_file
+    uploaded_file = st.file_uploader("Select Photo", type=["jpg", "jpeg", "png"])
+    if uploaded_file: source_img = uploaded_file
 
-# --- PROCESSING SECTION ---
 if source_img is not None:
-    # Convert image for AI processing
+    # Convert and show the FULL image immediately
     img = Image.open(source_img).convert('RGB')
+    st.image(img, caption="Analyze this photo?", use_container_width=True)
     
-    # Show a small preview so the user knows it's loaded
-    st.image(img, caption="Image Loaded!", width=300)
-    
-    if st.button("Detect My Age! 🚀"):
-        with st.spinner('Analyzing facial features...'):
+    if st.button("Check All Ages! 🚀"):
+        with st.spinner('Counting faces and checking ages...'):
             try:
                 img_array = np.array(img)
                 
-                # DeepFace Analysis
+                # Analyze faces (enforce_detection=False prevents crash, but means we might get empty results)
                 results = DeepFace.analyze(
                     img_path = img_array, 
                     actions = ['age'],
@@ -47,17 +39,54 @@ if source_img is not None:
                     detector_backend = 'opencv'
                 )
                 
-                age = results[0]['age']
+                # Clean out any empty results if face was too blurry
+                results = [r for r in results if r.get('region') is not None]
+                num_faces = len(results)
                 
-                # Big Result Display
-                st.balloons()
-                st.markdown(f"""
-                <div style="text-align: center; padding: 20px; border: 2px solid #ff4b4b; border-radius: 10px;">
-                    <h2 style="margin: 0;">Estimated Age</h2>
-                    <h1 style="font-size: 72px; color: #ff4b4b; margin: 10px 0;">{age}</h1>
-                    <p style="color: gray;">Years Old</p>
-                </div>
-                """, unsafe_allow_html=True)
+                if num_faces == 0:
+                    st.warning("The AI couldn't find any clear faces. Try a clearer photo!")
+                else:
+                    st.success(f"AI found **{num_faces}** face(s). Results below:")
+                    st.write("---")
+                
+                # Loop through each face found
+                for i, face in enumerate(results):
+                    # Get Age and Face Region (Coordinates)
+                    age = face['age']
+                    region = face['region'] # Format: {'x': 10, 'y': 20, 'w': 100, 'h': 100}
+
+                    # Create a Crop using the full image array
+                    x, y, w, h = region['x'], region['y'], region['w'], region['h']
+                    
+                    # Cut out the face (safely, checking if crop is too small)
+                    if w > 10 and h > 10:
+                        face_crop_array = img_array[y:y+h, x:x+w]
+                        face_crop_img = Image.fromarray(face_crop_array)
+                    else:
+                        st.write("*(Face too small to crop)*")
+                        face_crop_img = None
+                    
+                    # Make a Result Card (Container) for this specific person
+                    with st.container(border=True):
+                        st.write(f"### Person {i+1}")
+                        
+                        col1, col2 = st.columns([1, 2]) # Image on left, Age on right
+                        
+                        with col1:
+                            if face_crop_img:
+                                # We set use_container_width=True so it fits nicely on a phone screen
+                                st.image(face_crop_img, use_container_width=True)
+                            else:
+                                st.write("📷")
+
+                        with col2:
+                            st.metric(label="Estimated Age", value=f"{age} years old")
+                        
+                        st.write("---") # Simple separator line
+                
+                if num_faces > 1:
+                    st.balloons()
                 
             except Exception as e:
-                st.error("The AI had a bit of trouble. Try a clearer photo with better lighting!")
+                st.error("Something went wrong with the AI. Try a photo where faces are clear.")
+                # st.write(f"Technical error: {e}") # Uncomment to debug
