@@ -24,11 +24,12 @@ st.write("Upload a photo with multiple people to see the AI in action.")
 uploaded_file = st.file_uploader("Choose a photo...", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
-    # 2. Trim resolution for stability (800px is the sweet spot for memory vs. accuracy)
     raw_img = Image.open(uploaded_file).convert('RGB')
-    raw_img.thumbnail((800, 800), Image.Resampling.LANCZOS)
     
-    st.image(raw_img, width='stretch', caption="Image ready for analysis")
+    # 1. Shrink it more aggressively for the first test
+    raw_img.thumbnail((500, 500), Image.Resampling.LANCZOS)
+    
+    st.image(raw_img, width='stretch', caption="Resized for speed")
     
     if st.button("Analyze All Faces! 🚀"):
         with st.spinner('AI is scanning for faces...'):
