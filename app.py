@@ -71,7 +71,7 @@ if source_img:
                     try:
                         results = DeepFace.analyze(
                             img_path=img_array,
-                            actions=['age'],
+                            actions=['age', 'emotion'],
                             enforce_detection=True,
                             detector_backend=backend,
                             align=True
@@ -98,6 +98,7 @@ if source_img:
                     person = max(results, key=lambda x: x['region']['w'] * x['region']['h'])
                     age = person['age']
                     r = person['region']
+                    smile_score = int(round(person.get('emotion', {}).get('happy', 0)))
 
                     # Create a card for the detected person
                     with st.container(border=True):
@@ -116,6 +117,7 @@ if source_img:
 
                         with col2:
                             st.metric("Age Guess", f"{age} yrs")
+                            st.metric("Smile Score", f"{smile_score} / 100")
 
                     st.balloons()
 
