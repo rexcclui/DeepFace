@@ -23,7 +23,15 @@ st.markdown("""
 
 st.title("How old am I? 🎂")
 
-# 2. TABS FOR INPUT
+# 2. Session state — persist results across Streamlit reruns
+if 'analysis_results' not in st.session_state:
+    st.session_state.analysis_results = None   # list of per-person dicts
+if 'face_crops' not in st.session_state:
+    st.session_state.face_crops = []           # pre-cropped face arrays
+if 'show_balloons' not in st.session_state:
+    st.session_state.show_balloons = False
+
+# 3. TABS FOR INPUT
 tab1, tab2 = st.tabs(["📸 Take a Selfie", "📁 Upload Image"])
 
 source_img = None
@@ -41,15 +49,13 @@ with tab2:
     if file_img:
         source_img = file_img
 
-# 3. ANALYSIS LOGIC
+# 4. ANALYSIS LOGIC
 if source_img:
-    # Load and optimize image size for the AI
     raw_img = Image.open(source_img).convert('RGB')
     raw_img.thumbnail((1000, 1000), Image.Resampling.LANCZOS)
-    
+
     st.image(raw_img, width='stretch', caption="Image received!")
-    
-    # Auto-run for camera, manual button for file upload
+
     run_analysis = False
     if cam_img:
         run_analysis = True
@@ -57,14 +63,17 @@ if source_img:
         run_analysis = st.button("Analyze Uploaded Photo! 🚀", type="primary")
 
     if run_analysis:
+        # Clear stale results from any previous photo
+        st.session_state.analysis_results = None
+        st.session_state.face_crops = []
+        st.session_state.show_balloons = False
+
         with st.spinner('AI is analyzing faces...'):
             try:
-                # Lazy import to save startup RAM
                 from deepface import DeepFace
                 img_array = np.array(raw_img)
 
-                # 4. MULTI-DETECTOR STRATEGY
-                # Try each backend in order; stop on first success
+                # 5. MULTI-DETECTOR STRATEGY
                 results = None
                 last_error = None
                 for backend in ['opencv', 'ssd', 'mtcnn', 'fastmtcnn']:
@@ -76,9 +85,8 @@ if source_img:
                             detector_backend=backend,
                             align=True
                         )
-                        break  # success — stop trying
+                        break
                     except ValueError:
-                        # No face detected by this backend; try the next one
                         last_error = 'no_face'
                         continue
                     except Exception as e:
@@ -93,45 +101,31 @@ if source_img:
                         with st.expander("Error details"):
                             st.caption(str(last_error))
                 else:
-                    st.divider()
-                    # Sort results left to right based on position in the photo
                     results = sorted(results, key=lambda x: x['region']['x'])
 
-                    st.subheader(f"Found {len(results)} person(s)")
-
-                    for i, person in enumerate(results):
-                        age = person['age']
+                    # Pre-compute per-person data and face crops, store in session state
+                    persons = []
+                    crops = []
+                    pad = 25
+                    h, w = img_array.shape[:2]
+                    for person in results:
                         r = person['region']
-                        # Look Score /10: face clarity (face_confidence) weighted 70%,
-                        # positive emotion (happy + surprise) weighted 30%
                         face_conf = person.get('face_confidence', 0.5)
                         emotions = person.get('emotion', {})
                         positive = (emotions.get('happy', 0) + emotions.get('surprise', 0)) / 100
                         look_score = round(min(10.0, face_conf * 7 + positive * 3), 1)
 
-                        # Create a card for each person
-                        with st.container(border=True):
-                            col1, col2 = st.columns([1, 2])
-                            with col1:
-                                # Crop the face with some padding
-                                pad = 25
-                                y1, y2 = max(0, r['y']-pad), min(img_array.shape[0], r['y']+r['h']+pad)
-                                x1, x2 = max(0, r['x']-pad), min(img_array.shape[1], r['x']+r['w']+pad)
-                                face_crop = img_array[y1:y2, x1:x2]
+                        y1, y2 = max(0, r['y'] - pad), min(h, r['y'] + r['h'] + pad)
+                        x1, x2 = max(0, r['x'] - pad), min(w, r['x'] + r['w'] + pad)
+                        crop = img_array[y1:y2, x1:x2]
 
-                                if face_crop.size > 0:
-                                    st.image(face_crop, width='stretch')
-                                else:
-                                    st.write("📷")
+                        persons.append({'age': person['age'], 'look_score': look_score})
+                        crops.append(crop if crop.size > 0 else None)
 
-                            with col2:
-                                st.markdown(f"**Person {i+1}**")
-                                st.metric("Age Guess", f"{age} yrs")
-                                st.metric("Look Score", f"{look_score} / 10")
+                    st.session_state.analysis_results = persons
+                    st.session_state.face_crops = crops
+                    st.session_state.show_balloons = True
 
-                    st.balloons()
-
-                # Immediate Memory Cleanup
                 del img_array
                 gc.collect()
 
@@ -141,10 +135,38 @@ if source_img:
                     st.caption(str(e))
                 gc.collect()
 
-# 5. SIDEBAR TOOLS
+# 6. DISPLAY RESULTS — rendered from session state so they survive reruns
+if st.session_state.analysis_results:
+    persons = st.session_state.analysis_results
+    crops = st.session_state.face_crops
+
+    st.divider()
+    st.subheader(f"Found {len(persons)} person(s)")
+
+    for i, (person, crop) in enumerate(zip(persons, crops)):
+        with st.container(border=True):
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                if crop is not None:
+                    st.image(crop, width='stretch')
+                else:
+                    st.write("📷")
+            with col2:
+                st.markdown(f"**Person {i+1}**")
+                st.metric("Age Guess", f"{person['age']} yrs")
+                st.metric("Look Score", f"{person['look_score']} / 10")
+
+    if st.session_state.show_balloons:
+        st.session_state.show_balloons = False
+        st.balloons()
+
+# 7. SIDEBAR TOOLS
 with st.sidebar:
     st.title("Settings")
     if st.button("Hard Reset App"):
+        st.session_state.analysis_results = None
+        st.session_state.face_crops = []
+        st.session_state.show_balloons = False
         gc.collect()
         st.rerun()
     st.write("---")
