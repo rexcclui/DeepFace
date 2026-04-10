@@ -61,37 +61,47 @@ if source_img:
                 # Lazy import to save startup RAM
                 from deepface import DeepFace
                 img_array = np.array(raw_img)
-                
-                # 4. MULTI-DETECTOR STRATEGY
-                # We try 'fastmtcnn' first (better for groups), then fallback to 'opencv'
-                try:
-                    results = DeepFace.analyze(
-                        img_path = img_array, 
-                        actions = ['age'],
-                        enforce_detection = False, 
-                        detector_backend = 'fastmtcnn', 
-                        align = True
-                    )
-                except:
-                    results = DeepFace.analyze(
-                        img_path = img_array, 
-                        actions = ['age'],
-                        enforce_detection = False, 
-                        detector_backend = 'opencv', 
-                        align = True
-                    )
 
-                if results:
+                # 4. MULTI-DETECTOR STRATEGY
+                # Try each backend in order; stop on first success
+                results = None
+                last_error = None
+                for backend in ['opencv', 'ssd', 'mtcnn', 'fastmtcnn']:
+                    try:
+                        results = DeepFace.analyze(
+                            img_path=img_array,
+                            actions=['age'],
+                            enforce_detection=True,
+                            detector_backend=backend,
+                            align=True
+                        )
+                        break  # success — stop trying
+                    except ValueError:
+                        # No face detected by this backend; try the next one
+                        last_error = 'no_face'
+                        continue
+                    except Exception as e:
+                        last_error = e
+                        continue
+
+                if not results:
+                    if last_error == 'no_face':
+                        st.warning("No face detected. Try facing the camera directly with good lighting.")
+                    else:
+                        st.error("The AI is having a moment. Please try a clearer photo or a different angle.")
+                        with st.expander("Error details"):
+                            st.caption(str(last_error))
+                else:
                     st.divider()
                     # Sort results from left to right based on the photo
                     results = sorted(results, key=lambda x: x['region']['x'])
-                    
+
                     st.subheader(f"Found {len(results)} person(s)")
-                    
+
                     for i, person in enumerate(results):
                         age = person['age']
                         r = person['region']
-                        
+
                         # Create a card for each person
                         with st.container(border=True):
                             col1, col2 = st.columns([1, 2])
@@ -101,24 +111,26 @@ if source_img:
                                 y1, y2 = max(0, r['y']-pad), min(img_array.shape[0], r['y']+r['h']+pad)
                                 x1, x2 = max(0, r['x']-pad), min(img_array.shape[1], r['x']+r['w']+pad)
                                 face_crop = img_array[y1:y2, x1:x2]
-                                
+
                                 if face_crop.size > 0:
                                     st.image(face_crop, width='stretch')
                                 else:
                                     st.write("📷")
-                            
+
                             with col2:
                                 st.markdown(f"**Person {i+1}**")
                                 st.metric("Age Guess", f"{age} yrs")
 
                     st.balloons()
-                
+
                 # Immediate Memory Cleanup
                 del img_array
                 gc.collect()
-                
+
             except Exception as e:
                 st.error("The AI is having a moment. Please try a clearer photo or a different angle.")
+                with st.expander("Error details"):
+                    st.caption(str(e))
                 gc.collect()
 
 # 5. SIDEBAR TOOLS
