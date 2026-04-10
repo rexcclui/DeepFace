@@ -1,7 +1,6 @@
 streamlit>=1.50.0
 deepface
 opencv-python-headless
-ultralytics
-tensorflow-cpu
 tf-keras
+tensorflow-cpu
 Pillow

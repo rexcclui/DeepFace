@@ -4,88 +4,75 @@ import numpy as np
 import os
 import gc
 
-# Stability Settings
+# 1. Server Stability Settings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 st.set_page_config(page_title="How old am I?", layout="centered")
 
-# Custom UI cleanup
+# Custom CSS for a clean, professional app look
 st.markdown("""
     <style>
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
-        .stMetric { background-color: #f0f2f6; padding: 10px; border-radius: 10px; }
+        .stMetric { background-color: #f0f2f6; padding: 15px; border-radius: 10px; border: 1px solid #dcdfe6; }
+        .stButton>button { width: 100%; border-radius: 20px; height: 3em; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("How old am I? 🎂")
 
-uploaded_file = st.file_uploader("Upload a photo with one or more people", type=["jpg", "jpeg", "png"])
+# 2. TABS FOR INPUT
+tab1, tab2 = st.tabs(["📸 Take a Selfie", "📁 Upload Image"])
 
-if uploaded_file:
-    # 1. Load and Resize (1000px allows AI to see background faces)
-    raw_img = Image.open(uploaded_file).convert('RGB')
+source_img = None
+
+with tab1:
+    st.write("### Quick Selfie")
+    cam_img = st.camera_input("Snap a photo to analyze automatically")
+    if cam_img:
+        source_img = cam_img
+
+with tab2:
+    st.write("### Select a Photo")
+    st.info("💡 Hint: Use the 'Search' or 'Recent' folder on your phone to find files faster.")
+    file_img = st.file_uploader("Upload from your device", type=["jpg", "jpeg", "png"])
+    if file_img:
+        source_img = file_img
+
+# 3. ANALYSIS LOGIC
+if source_img:
+    # Load and optimize image size for the AI
+    raw_img = Image.open(source_img).convert('RGB')
     raw_img.thumbnail((1000, 1000), Image.Resampling.LANCZOS)
     
-    st.image(raw_img, width='stretch', caption="Ready for Scanning")
+    st.image(raw_img, width='stretch', caption="Image received!")
     
-    if st.button("Analyze All Ages! 🚀", type="primary"):
-        with st.spinner('AI is scanning for faces...'):
+    # Auto-run for camera, manual button for file upload
+    run_analysis = False
+    if cam_img:
+        run_analysis = True
+    else:
+        run_analysis = st.button("Analyze Uploaded Photo! 🚀", type="primary")
+
+    if run_analysis:
+        with st.spinner('AI is analyzing faces...'):
             try:
+                # Lazy import to save startup RAM
                 from deepface import DeepFace
                 img_array = np.array(raw_img)
                 
-                # 2. Use YOLOv8 - The best for multi-face detection in 2026
-                # It finds faces even if they are small or slightly turned.
-                results = DeepFace.analyze(
-                    img_path = img_array, 
-                    actions = ['age'],
-                    enforce_detection = False, 
-                    detector_backend = 'yolov8', 
-                    align = True
-                )
-
-                # 3. Handle Results
-                if not results or len(results) == 0:
-                    st.warning("No faces detected. Try a clearer photo!")
-                else:
-                    st.divider()
-                    # Sort faces from left to right so the list matches the photo
-                    results = sorted(results, key=lambda x: x['region']['x'])
-                    st.subheader(f"Found {len(results)} person(s)")
-                    
-                    for i, face in enumerate(results):
-                        age = face['age']
-                        r = face['region']
-                        
-                        with st.container(border=True):
-                            col1, col2 = st.columns([1, 2])
-                            with col1:
-                                # Crop with a tiny bit of breathing room
-                                pad = 15
-                                y1, y2 = max(0, r['y']-pad), min(img_array.shape[0], r['y']+r['h']+pad)
-                                x1, x2 = max(0, r['x']-pad), min(img_array.shape[1], r['x']+r['w']+pad)
-                                face_crop = img_array[y1:y2, x1:x2]
-                                
-                                if face_crop.size > 0:
-                                    st.image(face_crop, width='stretch')
-                            
-                            with col2:
-                                st.markdown(f"### Person {i+1}")
-                                st.metric("Age Guess", f"{age} years")
-
-                st.balloons()
-                del img_array
-                gc.collect()
-                
-            except Exception as e:
-                st.error("The AI hit a snag.")
-                # Show the real error so we can fix it if YOLOv8 fails
-                st.info(f"Technical detail: {str(e)}")
-                gc.collect()
-
-# Reset button
-if st.sidebar.button("Hard Reset"):
-    gc.collect()
-    st.rerun()
+                # 4. MULTI-DETECTOR STRATEGY
+                # We try 'fastmtcnn' first (better for groups), then fallback to 'opencv'
+                try:
+                    results = DeepFace.analyze(
+                        img_path = img_array, 
+                        actions = ['age'],
+                        enforce_detection = False, 
+                        detector_backend = 'fastmtcnn', 
+                        align = True
+                    )
+                except:
+                    results = DeepFace.analyze(
+                        img_path = img_array, 
+                        actions = ['
