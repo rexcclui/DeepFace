@@ -15,7 +15,8 @@ st.markdown("""
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
-        .stMetric { background-color: #f0f2f6; padding: 15px; border-radius: 10px; border: 1px solid #dcdfe6; }
+        .stMetric { background-color: #1e3a5f; padding: 15px; border-radius: 10px; border: 1px solid #2d5a8e; }
+        .stMetric * { color: white !important; }
         .stButton>button { width: 100%; border-radius: 20px; height: 3em; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
@@ -70,7 +71,7 @@ if source_img:
                     try:
                         results = DeepFace.analyze(
                             img_path=img_array,
-                            actions=['age'],
+                            actions=['age', 'emotion'],
                             enforce_detection=True,
                             detector_backend=backend,
                             align=True
@@ -93,33 +94,35 @@ if source_img:
                             st.caption(str(last_error))
                 else:
                     st.divider()
-                    # Sort results from left to right based on the photo
-                    results = sorted(results, key=lambda x: x['region']['x'])
+                    # Pick the most prominent person (largest detected face area)
+                    person = max(results, key=lambda x: x['region']['w'] * x['region']['h'])
+                    age = person['age']
+                    r = person['region']
+                    # Look Score /10: face clarity (face_confidence) weighted 70%,
+                    # positive emotion (happy + surprise) weighted 30%
+                    face_conf = person.get('face_confidence', 0.5)
+                    emotions = person.get('emotion', {})
+                    positive = (emotions.get('happy', 0) + emotions.get('surprise', 0)) / 100
+                    look_score = round(min(10.0, face_conf * 7 + positive * 3), 1)
 
-                    st.subheader(f"Found {len(results)} person(s)")
+                    # Create a card for the detected person
+                    with st.container(border=True):
+                        col1, col2 = st.columns([1, 2])
+                        with col1:
+                            # Crop the face with some padding
+                            pad = 25
+                            y1, y2 = max(0, r['y']-pad), min(img_array.shape[0], r['y']+r['h']+pad)
+                            x1, x2 = max(0, r['x']-pad), min(img_array.shape[1], r['x']+r['w']+pad)
+                            face_crop = img_array[y1:y2, x1:x2]
 
-                    for i, person in enumerate(results):
-                        age = person['age']
-                        r = person['region']
+                            if face_crop.size > 0:
+                                st.image(face_crop, width='stretch')
+                            else:
+                                st.write("📷")
 
-                        # Create a card for each person
-                        with st.container(border=True):
-                            col1, col2 = st.columns([1, 2])
-                            with col1:
-                                # Crop the face with some padding
-                                pad = 25
-                                y1, y2 = max(0, r['y']-pad), min(img_array.shape[0], r['y']+r['h']+pad)
-                                x1, x2 = max(0, r['x']-pad), min(img_array.shape[1], r['x']+r['w']+pad)
-                                face_crop = img_array[y1:y2, x1:x2]
-
-                                if face_crop.size > 0:
-                                    st.image(face_crop, width='stretch')
-                                else:
-                                    st.write("📷")
-
-                            with col2:
-                                st.markdown(f"**Person {i+1}**")
-                                st.metric("Age Guess", f"{age} yrs")
+                        with col2:
+                            st.metric("Age Guess", f"{age} yrs")
+                            st.metric("Look Score", f"{look_score} / 10")
 
                     st.balloons()
 
