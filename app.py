@@ -74,20 +74,25 @@ if source_img:
                 img_array = np.array(raw_img)
 
                 # 5. MULTI-DETECTOR STRATEGY
-                # Try every backend and keep whichever finds the most faces
+                # Try every backend and keep whichever finds the most faces.
+                # retinaface/mtcnn are best for group photos; opencv/ssd often
+                # miss faces that are slightly off-angle or at different scales.
                 best_results = None
                 last_error = None
-                for backend in ['opencv', 'ssd', 'mtcnn', 'fastmtcnn']:
+                for backend in ['retinaface', 'mtcnn', 'fastmtcnn', 'yunet', 'opencv', 'ssd']:
                     try:
                         r = DeepFace.analyze(
                             img_path=img_array,
                             actions=['age', 'emotion'],
                             enforce_detection=True,
                             detector_backend=backend,
-                            align=True
+                            align=False
                         )
                         if best_results is None or len(r) > len(best_results):
                             best_results = r
+                        # stop early if we already found 2+ people
+                        if best_results and len(best_results) >= 2:
+                            break
                     except ValueError:
                         last_error = 'no_face'
                         continue
