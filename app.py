@@ -74,24 +74,27 @@ if source_img:
                 img_array = np.array(raw_img)
 
                 # 5. MULTI-DETECTOR STRATEGY
-                results = None
+                # Try every backend and keep whichever finds the most faces
+                best_results = None
                 last_error = None
                 for backend in ['opencv', 'ssd', 'mtcnn', 'fastmtcnn']:
                     try:
-                        results = DeepFace.analyze(
+                        r = DeepFace.analyze(
                             img_path=img_array,
                             actions=['age', 'emotion'],
                             enforce_detection=True,
                             detector_backend=backend,
                             align=True
                         )
-                        break
+                        if best_results is None or len(r) > len(best_results):
+                            best_results = r
                     except ValueError:
                         last_error = 'no_face'
                         continue
                     except Exception as e:
                         last_error = e
                         continue
+                results = best_results
 
                 if not results:
                     if last_error == 'no_face':
