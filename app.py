@@ -32,6 +32,17 @@ if 'face_crops' not in st.session_state:
 if 'show_balloons' not in st.session_state:
     st.session_state.show_balloons = False
 
+# 2a. Cache InsightFace model across reruns (avoids reloading on every interaction)
+@st.cache_resource(show_spinner="Loading age model…")
+def load_insightface():
+    try:
+        from insightface.app import FaceAnalysis
+        fa = FaceAnalysis(name='buffalo_sc', providers=['CPUExecutionProvider'])
+        fa.prepare(ctx_id=0, det_size=(640, 640))
+        return fa
+    except Exception:
+        return None
+
 # 3. TABS FOR INPUT
 tab1, tab2, tab3 = st.tabs(["📸 Take a Selfie", "📁 Upload Image", "📋 Paste Image"])
 
@@ -92,66 +103,104 @@ if source_img:
 
         with st.spinner('AI is analyzing faces...'):
             try:
+                import cv2
                 from deepface import DeepFace
                 img_array = np.array(raw_img)
+                h, w = img_array.shape[:2]
+                pad = 25
+                persons = []
+                crops = []
 
-                # 5. MULTI-DETECTOR STRATEGY
-                # Try every backend and keep whichever finds the most faces.
-                # retinaface/mtcnn are best for group photos; opencv/ssd often
-                # miss faces that are slightly off-angle or at different scales.
-                best_results = None
-                last_error = None
-                for backend in ['retinaface', 'mtcnn', 'fastmtcnn', 'yunet', 'opencv', 'ssd']:
+                # 5a. PRIMARY — InsightFace (buffalo_sc) for detection + age.
+                # Trained on diverse demographic data; significantly more accurate
+                # for young/Asian faces than the IMDB-WIKI-based DeepFace model.
+                fa = load_insightface()
+                if fa is not None:
                     try:
-                        r = DeepFace.analyze(
-                            img_path=img_array,
-                            actions=['age', 'emotion'],
-                            enforce_detection=True,
-                            detector_backend=backend,
-                            align=False
-                        )
-                        if best_results is None or len(r) > len(best_results):
-                            best_results = r
-                        # stop early if we already found 2+ people
-                        if best_results and len(best_results) >= 2:
-                            break
-                    except ValueError:
-                        last_error = 'no_face'
-                        continue
-                    except Exception as e:
-                        last_error = e
-                        continue
-                results = best_results
+                        img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+                        insightface_faces = fa.get(img_bgr)
+                        if insightface_faces:
+                            insightface_faces = sorted(insightface_faces, key=lambda f: f.bbox[0])
+                            for face in insightface_faces:
+                                x1, y1, x2, y2 = face.bbox.astype(int)
+                                age = max(1, round(float(face.age)))
+                                face_conf = float(face.det_score)
 
-                if not results:
-                    if last_error == 'no_face':
-                        st.warning("No face detected. Try facing the camera directly with good lighting.")
+                                cy1, cy2 = max(0, y1 - pad), min(h, y2 + pad)
+                                cx1, cx2 = max(0, x1 - pad), min(w, x2 + pad)
+                                crop = img_array[cy1:cy2, cx1:cx2]
+
+                                # Get emotion from DeepFace on the isolated face crop
+                                emotions = {}
+                                if crop.size > 0:
+                                    try:
+                                        emo = DeepFace.analyze(
+                                            img_path=crop,
+                                            actions=['emotion'],
+                                            enforce_detection=False,
+                                            detector_backend='opencv'
+                                        )
+                                        emotions = emo[0].get('emotion', {})
+                                    except Exception:
+                                        pass
+
+                                positive = (emotions.get('happy', 0) + emotions.get('surprise', 0)) / 100
+                                look_score = round(min(10.0, face_conf * 7 + positive * 3), 1)
+                                persons.append({'age': age, 'look_score': look_score})
+                                crops.append(crop if crop.size > 0 else None)
+                    except Exception:
+                        pass  # InsightFace failed entirely — fall through to DeepFace
+
+                # 5b. FALLBACK — DeepFace multi-detector strategy.
+                # Used when InsightFace is unavailable or detects no faces.
+                if not persons:
+                    best_results = None
+                    last_error = None
+                    for backend in ['retinaface', 'mtcnn', 'fastmtcnn', 'yunet', 'opencv', 'ssd']:
+                        try:
+                            r = DeepFace.analyze(
+                                img_path=img_array,
+                                actions=['age', 'emotion'],
+                                enforce_detection=True,
+                                detector_backend=backend,
+                                align=False
+                            )
+                            if best_results is None or len(r) > len(best_results):
+                                best_results = r
+                            if best_results and len(best_results) >= 2:
+                                break
+                        except ValueError:
+                            last_error = 'no_face'
+                            continue
+                        except Exception as e:
+                            last_error = e
+                            continue
+                    results = best_results
+
+                    if not results:
+                        if last_error == 'no_face':
+                            st.warning("No face detected. Try facing the camera directly with good lighting.")
+                        else:
+                            st.error("The AI is having a moment. Please try a clearer photo or a different angle.")
+                            with st.expander("Error details"):
+                                st.caption(str(last_error))
                     else:
-                        st.error("The AI is having a moment. Please try a clearer photo or a different angle.")
-                        with st.expander("Error details"):
-                            st.caption(str(last_error))
-                else:
-                    results = sorted(results, key=lambda x: x['region']['x'])
+                        results = sorted(results, key=lambda x: x['region']['x'])
+                        for person in results:
+                            r = person['region']
+                            face_conf = person.get('face_confidence', 0.5)
+                            emotions = person.get('emotion', {})
+                            positive = (emotions.get('happy', 0) + emotions.get('surprise', 0)) / 100
+                            look_score = round(min(10.0, face_conf * 7 + positive * 3), 1)
 
-                    # Pre-compute per-person data and face crops, store in session state
-                    persons = []
-                    crops = []
-                    pad = 25
-                    h, w = img_array.shape[:2]
-                    for person in results:
-                        r = person['region']
-                        face_conf = person.get('face_confidence', 0.5)
-                        emotions = person.get('emotion', {})
-                        positive = (emotions.get('happy', 0) + emotions.get('surprise', 0)) / 100
-                        look_score = round(min(10.0, face_conf * 7 + positive * 3), 1)
+                            y1, y2 = max(0, r['y'] - pad), min(h, r['y'] + r['h'] + pad)
+                            x1, x2 = max(0, r['x'] - pad), min(w, r['x'] + r['w'] + pad)
+                            crop = img_array[y1:y2, x1:x2]
 
-                        y1, y2 = max(0, r['y'] - pad), min(h, r['y'] + r['h'] + pad)
-                        x1, x2 = max(0, r['x'] - pad), min(w, r['x'] + r['w'] + pad)
-                        crop = img_array[y1:y2, x1:x2]
+                            persons.append({'age': person['age'], 'look_score': look_score})
+                            crops.append(crop if crop.size > 0 else None)
 
-                        persons.append({'age': person['age'], 'look_score': look_score})
-                        crops.append(crop if crop.size > 0 else None)
-
+                if persons:
                     st.session_state.analysis_results = persons
                     st.session_state.face_crops = crops
                     st.session_state.show_balloons = True

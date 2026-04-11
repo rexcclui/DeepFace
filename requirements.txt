@@ -5,3 +5,5 @@ tf-keras
 tensorflow-cpu==2.13.1
 Pillow
 streamlit-paste-button>=0.1.0
+insightface>=0.7.3
+onnxruntime
