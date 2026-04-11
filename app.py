@@ -3,6 +3,7 @@ from PIL import Image
 import numpy as np
 import os
 import gc
+from io import BytesIO
 
 # 1. Server Stability Settings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -32,15 +33,18 @@ if 'show_balloons' not in st.session_state:
     st.session_state.show_balloons = False
 
 # 3. TABS FOR INPUT
-tab1, tab2 = st.tabs(["📸 Take a Selfie", "📁 Upload Image"])
+tab1, tab2, tab3 = st.tabs(["📸 Take a Selfie", "📁 Upload Image", "📋 Paste Image"])
 
 source_img = None
+is_camera = False
+is_paste = False
 
 with tab1:
     st.write("### Quick Selfie")
     cam_img = st.camera_input("Snap a photo to analyze automatically")
     if cam_img:
         source_img = cam_img
+        is_camera = True
 
 with tab2:
     st.write("### Select a Photo")
@@ -48,6 +52,24 @@ with tab2:
     file_img = st.file_uploader("Upload from your device", type=["jpg", "jpeg", "png"])
     if file_img:
         source_img = file_img
+
+with tab3:
+    st.write("### Paste from Clipboard")
+    st.info(
+        "**On iPhone/iPad:** Open Photos → long-press a photo → **Copy Photo** → come back here → tap the button below.\n\n"
+        "**On Android:** Open a photo in your gallery → tap **Share** → **Copy** → come back here → tap the button below."
+    )
+    try:
+        from streamlit_paste_button import paste_image_button as pbutton
+        paste_result = pbutton("📋 Paste Image from Clipboard", key="paste_btn")
+        if paste_result.image_data is not None:
+            buf = BytesIO()
+            paste_result.image_data.save(buf, format='PNG')
+            buf.seek(0)
+            source_img = buf
+            is_paste = True
+    except ImportError:
+        st.warning("Clipboard paste requires `streamlit-paste-button`. Run: `pip install streamlit-paste-button`")
 
 # 4. ANALYSIS LOGIC
 if source_img:
@@ -57,7 +79,7 @@ if source_img:
     st.image(raw_img, width='stretch', caption="Image received!")
 
     run_analysis = False
-    if cam_img:
+    if is_camera or is_paste:
         run_analysis = True
     else:
         run_analysis = st.button("Analyze Uploaded Photo! 🚀", type="primary")

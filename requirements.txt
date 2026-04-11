@@ -4,3 +4,4 @@ opencv-python-headless
 tf-keras
 tensorflow-cpu==2.13.1
 Pillow
+streamlit-paste-button>=0.1.0
