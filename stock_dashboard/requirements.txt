@@ -1,0 +1,6 @@
+streamlit>=1.50.0
+yfinance>=0.2.40
+pandas-ta>=0.3.14b
+plotly>=5.18.0
+vaderSentiment>=3.3.2
+openai>=1.30.0
