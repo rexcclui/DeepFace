@@ -1,14 +1,23 @@
 # Architecture & Technical Stack
 
 ## Table of Contents
-1. [System Overview](#system-overview)
-2. [Repository Structure](#repository-structure)
-3. [Technical Stack](#technical-stack)
-4. [Application Architecture](#application-architecture)
-5. [Core Analysis Pipeline](#core-analysis-pipeline)
-6. [Data Flow](#data-flow)
-7. [Advantages](#advantages)
-8. [Limitations](#limitations)
+1. [CV Description](#cv-description)
+2. [System Overview](#system-overview)
+3. [Repository Structure](#repository-structure)
+4. [Technical Stack](#technical-stack)
+5. [Application Architecture](#application-architecture)
+6. [Core Analysis Pipeline](#core-analysis-pipeline)
+7. [Data Flow](#data-flow)
+8. [Advantages](#advantages)
+9. [Limitations](#limitations)
+
+---
+
+## CV Description
+
+> Built a privacy-first AI web application using Python, Streamlit, InsightFace, and DeepFace with TensorFlow that detects faces in real-time photos, estimates age with a dual-model strategy (InsightFace buffalo_sc primary, six-backend DeepFace fallback), and computes a custom Look Score — deployed via GitHub Codespaces with zero persistent infrastructure.
+
+*(49 words — ready to paste into your CV)*
 
 ---
 
@@ -20,24 +29,27 @@
 User (Mobile / Desktop Browser)
         │
         ▼
-┌─────────────────────────────────────┐
-│     GitHub Codespaces               │
-│  ┌───────────────────────────────┐  │
-│  │  Dev Container (Python 3.11)  │  │
-│  │  Debian Bookworm              │  │
-│  │                               │  │
-│  │  ┌─────────────────────────┐  │  │
-│  │  │   Streamlit Server      │  │  │
-│  │  │   app.py  (port 8501)   │  │  │
-│  │  │                         │  │  │
-│  │  │  ┌───────────────────┐  │  │  │
-│  │  │  │  DeepFace Engine  │  │  │  │
-│  │  │  │  TensorFlow 2.13  │  │  │  │
-│  │  │  │  OpenCV           │  │  │  │
-│  │  │  └───────────────────┘  │  │  │
-│  │  └─────────────────────────┘  │  │
-│  └───────────────────────────────┘  │
-└─────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│     GitHub Codespaces (public port 8501)    │
+│  ┌─────────────────────────────────────┐    │
+│  │  Dev Container (Python 3.11/Debian) │    │
+│  │                                     │    │
+│  │  ┌─────────────────────────────┐    │    │
+│  │  │   Streamlit Server (app.py) │    │    │
+│  │  │                             │    │    │
+│  │  │  ┌───────────────────────┐  │    │    │
+│  │  │  │  PRIMARY: InsightFace │  │    │    │
+│  │  │  │  buffalo_sc (ONNX)    │  │    │    │
+│  │  │  └───────────┬───────────┘  │    │    │
+│  │  │              │ fallback     │    │    │
+│  │  │  ┌───────────▼───────────┐  │    │    │
+│  │  │  │  FALLBACK: DeepFace   │  │    │    │
+│  │  │  │  TensorFlow 2.13 CPU  │  │    │    │
+│  │  │  │  OpenCV               │  │    │    │
+│  │  │  └───────────────────────┘  │    │    │
+│  │  └─────────────────────────────┘    │    │
+│  └─────────────────────────────────────┘    │
+└─────────────────────────────────────────────┘
 ```
 
 ---
@@ -46,7 +58,7 @@ User (Mobile / Desktop Browser)
 
 ```
 DeepFace/
-├── app.py                      # Entire application — UI + analysis logic (~200 lines)
+├── app.py                      # Entire application — UI + analysis logic (~253 lines)
 ├── requirements.txt            # Python dependencies
 ├── packages.txt                # System (apt) dependencies
 ├── ARCHITECTURE.md             # This document
@@ -81,8 +93,10 @@ DeepFace/
 
 | Component | Package | Version | Role |
 |---|---|---|---|
-| Face analysis | DeepFace | latest | Age estimation, emotion detection |
-| Deep learning runtime | tensorflow-cpu | `== 2.13.1` | Model inference (pinned for stability) |
+| **Primary** face detection & age | InsightFace | `>= 0.7.3` | buffalo_sc model — better demographic accuracy |
+| ONNX model runtime | onnxruntime | latest | Required by InsightFace backends |
+| **Fallback** face analysis | DeepFace | latest | Age estimation, emotion detection (6-backend loop) |
+| Deep learning runtime | tensorflow-cpu | `== 2.13.1` | Model inference for DeepFace (pinned for stability) |
 | Keras compatibility | tf-keras | latest | Required by DeepFace with TF 2.13 |
 
 ### Computer Vision & Image Processing
@@ -99,9 +113,23 @@ DeepFace/
 | `libgl1` | OpenGL support required by OpenCV |
 | `libglib2.0-0t64` | GLib runtime required by OpenCV on Debian Bookworm |
 
-### Face Detection Backends (via DeepFace)
+### Face Detection Strategy
 
-Six backends are attempted in priority order:
+The app uses a **dual-strategy approach**:
+
+#### Strategy 1 — Primary: InsightFace (buffalo_sc)
+
+| Property | Detail |
+|---|---|
+| Model | `buffalo_sc` (Scaled Chinese variant) |
+| Runtime | ONNX via CPUExecutionProvider |
+| Strengths | Better demographic accuracy; strong on diverse, younger, and Asian faces |
+| Output | Bounding box, age integer, face confidence score |
+| Init | `FaceAnalysis(name='buffalo_sc', providers=['CPUExecutionProvider'])` |
+
+#### Strategy 2 — Fallback: DeepFace Multi-Detector Loop
+
+Activated when InsightFace detects no faces. Six backends are attempted in priority order, keeping the result with the most detected faces (early exit if ≥ 2 faces found):
 
 | Priority | Backend | Strength |
 |---|---|---|
@@ -188,28 +216,39 @@ Image Input (camera / file / clipboard)
 PIL.Image.open() → convert('RGB')
         │
         ▼
-thumbnail(1000×1000, LANCZOS)   ← resize for memory safety
+thumbnail(1000×1000, LANCZOS)        ← resize for memory safety
         │
         ▼
-np.array(raw_img)               ← convert to NumPy for DeepFace
+np.array(raw_img)                    ← convert to NumPy
         │
         ▼
-┌───────────────────────────────────────────┐
-│         Multi-Detector Loop               │
-│                                           │
-│  for backend in [retinaface, mtcnn,       │
-│                  fastmtcnn, yunet,        │
-│                  opencv, ssd]:            │
-│                                           │
-│    DeepFace.analyze(                      │
-│      actions=['age','emotion'],           │
-│      enforce_detection=True,              │
-│      align=False                          │
-│    )                                      │
-│                                           │
-│    Keep result with MOST faces            │
-│    Stop early if ≥ 2 faces found          │
-└───────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│  STRATEGY 1 — InsightFace (Primary)          │
+│                                              │
+│  FaceAnalysis(name='buffalo_sc',             │
+│               providers=['CPUExecutionProvider'])│
+│                                              │
+│  → returns: age, bbox, confidence per face  │
+│  → emotion analysis: DeepFace on face crop  │
+└──────────────────┬───────────────────────────┘
+                   │ if 0 faces detected
+                   ▼
+┌──────────────────────────────────────────────┐
+│  STRATEGY 2 — DeepFace Fallback Loop         │
+│                                              │
+│  for backend in [retinaface, mtcnn,          │
+│                  fastmtcnn, yunet,           │
+│                  opencv, ssd]:               │
+│                                              │
+│    DeepFace.analyze(                         │
+│      actions=['age','emotion'],              │
+│      enforce_detection=True,                 │
+│      align=False                             │
+│    )                                         │
+│                                              │
+│    Keep result with MOST faces               │
+│    Stop early if ≥ 2 faces found             │
+└──────────────────────────────────────────────┘
         │
         ▼
 Sort detected faces left → right by region['x']
@@ -218,7 +257,7 @@ Sort detected faces left → right by region['x']
 For each face:
   ├── Crop with 25px padding (boundary-clamped)
   └── Compute Look Score:
-        face_conf = person['face_confidence']  (default 0.5)
+        face_conf = detection confidence  (default 0.5)
         positive  = (happy% + surprise%) / 100
         score     = min(10.0, face_conf×7 + positive×3)
         score     = round(score, 1)
@@ -232,8 +271,8 @@ Store in session_state → Render results → gc.collect()
 ```
 Look Score = min(10.0,  face_confidence × 7  +  positive_emotion × 3)
 
-  face_confidence   → DeepFace detection confidence  [0.0 – 1.0]  (weight 70%)
-  positive_emotion  → (happy% + surprise%) ÷ 100     [0.0 – 1.0]  (weight 30%)
+  face_confidence   → detection confidence  [0.0 – 1.0]  (weight 70%)
+  positive_emotion  → (happy% + surprise%) ÷ 100  [0.0 – 1.0]  (weight 30%)
   result capped at 10.0, rounded to 1 decimal place
 ```
 
@@ -244,21 +283,27 @@ Look Score = min(10.0,  face_confidence × 7  +  positive_emotion × 3)
 ```
 User Photo
     │
-    │ (HTTPS, Codespaces public port)
+    │ (HTTPS, Codespaces public port 8501)
     ▼
-Streamlit Server (port 8501)
+Streamlit Server
     │
     │ PIL decode → RGB conversion → 1000px resize
     ▼
 NumPy Array (in-memory only)
     │
-    │ DeepFace.analyze()
-    ▼
-TensorFlow 2.13 CPU inference
+    ├──[Primary]─► InsightFace buffalo_sc (ONNX/CPU)
+    │                  │
+    │               age integer
+    │               face bbox + confidence
+    │                  │
+    │              DeepFace.analyze() on face crop
+    │                  └─► emotion dict {happy, surprise, …}
     │
-    ├──► Age integer
-    ├──► Emotion dict  {happy, sad, angry, surprise, …}
-    └──► Face region   {x, y, w, h}
+    └──[Fallback]─► DeepFace multi-backend loop (TF 2.13 CPU)
+                       │
+                   age integer
+                   emotion dict
+                   face region {x, y, w, h}
     │
     │ Look Score calculation
     ▼
@@ -284,19 +329,22 @@ The entire stack runs inside a single GitHub Codespaces Dev Container. No databa
 ### 2. Privacy by Design
 Images are processed entirely in-memory within the container. They are never written to disk, never sent to an external AI API, and are garbage-collected immediately after analysis. This is a strong privacy property compared to cloud-AI approaches (e.g. AWS Rekognition, Google Vision API).
 
-### 3. Resilient Multi-Detector Strategy
-By cycling through six face detection backends and keeping the result with the most detected faces, the app tolerates a wide range of photo conditions — angled faces, low contrast, partial occlusion — that would cause any single detector to fail silently.
+### 3. Dual-Model Resilience
+InsightFace (buffalo_sc) acts as the primary detector with superior demographic accuracy. When it finds no faces, a six-backend DeepFace fallback loop tolerates a wide range of photo conditions — angled faces, low contrast, partial occlusion — that would cause any single detector to fail silently.
 
-### 4. Instant Deployment to Any Device
+### 4. Better Demographic Accuracy with InsightFace
+The buffalo_sc model is trained on more diverse datasets than standard DeepFace age models and performs better on young faces, Asian demographics, and photos taken at angles. This replaces the older single-detector approach with a more robust primary strategy.
+
+### 5. Instant Deployment to Any Device
 Because it is a web app served over HTTPS on a public Codespaces port, users on any device (iOS, Android, desktop) can access it without installing an app. The centered layout and three-tab input (selfie, upload, paste) provide a mobile-friendly experience.
 
-### 5. Self-Contained, Reproducible Environment
+### 6. Self-Contained, Reproducible Environment
 `devcontainer.json` defines the full environment: OS image, Python version, system packages, and Python packages. Any developer who clones the repo gets an identical environment, eliminating "works on my machine" issues.
 
-### 6. Simple Codebase
-~200 lines of Python. No build step, no transpilation, no separate frontend project. This makes the codebase easy to read, debug, and extend.
+### 7. Simple Codebase
+~253 lines of Python. No build step, no transpilation, no separate frontend project. This makes the codebase easy to read, debug, and extend.
 
-### 7. Session State Persistence
+### 8. Session State Persistence
 Results survive Streamlit reruns triggered by UI interactions (switching tabs, clicking sidebar buttons), so the user never loses their analysis while navigating the interface.
 
 ---
@@ -309,14 +357,14 @@ All results are held in Streamlit's in-memory session state. Closing the browser
 ### 2. Single-User, Single-Session Architecture
 Streamlit's execution model runs the entire script on every interaction for every connected client. There is no user authentication, no multi-tenancy, and no isolation between sessions beyond process-level memory separation. The app is not designed for concurrent use by many users.
 
-### 3. CPU-Only TensorFlow (Performance Ceiling)
-TensorFlow is pinned to the CPU variant (`tensorflow-cpu==2.13.1`). Face analysis on a group photo with multiple backends iterating in sequence can take 15–45 seconds depending on the Codespaces machine size. There is no GPU acceleration path within the current infrastructure.
+### 3. CPU-Only Inference (Performance Ceiling)
+Both InsightFace (ONNX/CPUExecutionProvider) and TensorFlow are pinned to CPU. Face analysis on a group photo — especially when the fallback loop iterates multiple backends — can take 15–45 seconds depending on the Codespaces machine size. There is no GPU acceleration path within the current infrastructure.
 
 ### 4. No Native Mobile Share Target
 Users cannot long-press a photo in iOS Photos or Android Gallery and see this app in the system share sheet. Implementing the Web Share Target API would require serving a service worker from the root path, which Streamlit's built-in server does not support without a reverse proxy (e.g. nginx). The clipboard paste tab is a partial workaround.
 
 ### 5. Brittle Dependency Pinning
-`tensorflow-cpu` is hard-pinned to `2.13.1` because later versions caused environment failures. `deepface` and other packages have no upper bound. This creates a risk that a new DeepFace release incompatible with TF 2.13 silently breaks the container on next build.
+`tensorflow-cpu` is hard-pinned to `2.13.1` because later versions caused environment failures. `deepface`, `insightface`, and other packages have no upper bound. This creates a risk that a new release incompatible with existing packages silently breaks the container on next build.
 
 ### 6. No Input Validation Beyond File Type
 The file uploader accepts only `.jpg`, `.jpeg`, and `.png` by extension, but does not verify image content, maximum file size, or minimum resolution. A very large image (e.g. 50 MP RAW-to-JPEG) would exhaust container memory before the `thumbnail()` resize executes.
@@ -325,7 +373,7 @@ The file uploader accepts only `.jpg`, `.jpeg`, and `.png` by extension, but doe
 The Look Score formula (`face_confidence × 7 + positive_emotion × 3`) is an invented metric combining detection quality with emotional expression. It does not correspond to any published aesthetic or photographic quality standard and can mislead users who interpret it as objective.
 
 ### 8. Age Estimation Bias
-DeepFace age models are trained on datasets that are known to have demographic imbalances (over-represented younger adults, certain ethnicities). Estimates for older adults, children, and people from under-represented groups can be systematically off by 5–15 years.
+Despite InsightFace's improved demographic coverage, all age estimation models carry dataset bias. Estimates for older adults and people from under-represented groups can still be systematically off by 5–15 years.
 
 ### 9. Codespaces Dependency
 The app has no documented path to deploy outside of GitHub Codespaces (e.g. to Streamlit Community Cloud, Heroku, or a VPS). The `devcontainer.json` startup command disables CORS and XSRF protection, which is acceptable inside a private Codespace but would be a security concern on a public server.
