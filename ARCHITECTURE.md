@@ -13,7 +13,7 @@
 
 ---
 
-## CV Description
+## Description
 
 > Built a privacy-first AI web application using Python, Streamlit, InsightFace, and DeepFace with TensorFlow that detects faces in real-time photos, estimates age with a dual-model strategy (InsightFace buffalo_sc primary, six-backend DeepFace fallback), and computes a custom Look Score — deployed via GitHub Codespaces with zero persistent infrastructure.
 
